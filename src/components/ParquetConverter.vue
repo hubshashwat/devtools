@@ -5,13 +5,15 @@ import * as duckdb from '@duckdb/duckdb-wasm';
 // --- STATE ---
 const fileStatus = ref<string>('Initializing DuckDB...');
 const rowCount = ref<number | null>(null);
-const fileName = ref<string | null>(null); // To store the uploaded file's name
+const fileName = ref<string | null>(null);
 const isProcessing = ref<boolean>(false);
-const isConverting = ref<boolean>(false); // For the download button state
+const isConverting = ref<boolean>(false);
 const db = ref<duckdb.AsyncDuckDB | null>(null);
+const uploadProgress = ref<number | null>(null); // For the progress bar
 
 // --- INITIALIZATION ---
 onMounted(async () => {
+  // This section is correct and remains unchanged
   try {
     const JSDELIVR_BUNDLES = duckdb.getJsDelivrBundles();
     const bundle = await duckdb.selectBundle(JSDELIVR_BUNDLES);
@@ -33,6 +35,7 @@ onMounted(async () => {
 });
 
 // --- METHODS ---
+// FILE UPLOAD WITH PROGRESS BAR
 const handleFileUpload = async (event: Event) => {
   if (!db.value) { return; }
   const target = event.target as HTMLInputElement;
@@ -42,10 +45,22 @@ const handleFileUpload = async (event: Event) => {
   isProcessing.value = true;
   fileStatus.value = `Processing file: ${file.name}...`;
   rowCount.value = null;
-  fileName.value = file.name; // Store the filename
+  fileName.value = file.name;
+  uploadProgress.value = 0;
 
   try {
-    await db.value.registerFileBuffer(file.name, new Uint8Array(await file.arrayBuffer()));
+    // Register the file buffer with a progress callback
+    await db.value.registerFileBuffer(
+      file.name, 
+      new Uint8Array(await file.arrayBuffer()),
+      false,
+      (progress) => {
+        uploadProgress.value = progress.progress * 100;
+        fileStatus.value = `Processing file: ${Math.round(uploadProgress.value)}%`;
+      }
+    );
+    
+    uploadProgress.value = null; // Hide progress bar after processing
     const conn = await db.value.connect();
     
     const countResult = await conn.query(`SELECT COUNT(*) FROM '${file.name}'`);
@@ -56,36 +71,58 @@ const handleFileUpload = async (event: Event) => {
   } catch (error) {
     console.error("Failed to process Parquet file:", error);
     fileStatus.value = `Error: ${(error as Error).message}`;
+    uploadProgress.value = null;
   } finally {
     isProcessing.value = false;
   }
 };
 
+// Helper function to safely format a cell for CSV
+const escapeCsvCell = (cell: any): string => {
+  if (cell === null || cell === undefined) {
+    return '';
+  }
+  const str = String(cell);
+  if (str.includes(',') || str.includes('"') || str.includes('\n')) {
+    return `"${str.replace(/"/g, '""')}"`;
+  }
+  return str;
+};
+
+// DOWNLOAD FUNCTION WITH STREAMING (FOR LARGE FILES)
 const handleDownloadCsv = async () => {
   if (!db.value || !fileName.value) { return; }
 
   isConverting.value = true;
-  fileStatus.value = 'Converting to CSV... this may take a moment for large files.';
-  const csvFileName = 'export.csv';
+  fileStatus.value = 'Streaming conversion to CSV... this may take a moment.';
   
   try {
     const conn = await db.value.connect();
-    
-    // --- THIS IS THE FIX ---
-    // Increase the memory limit for this connection to handle the large file.
-    await conn.query("PRAGMA memory_limit='1GB';");
-    // --- END OF FIX ---
+    await conn.query("PRAGMA memory_limit='2GB';");
 
-    // Use the COPY command to export the entire table to a virtual file
-    await conn.query(`COPY (SELECT * FROM '${fileName.value}') TO '${csvFileName}' WITH (FORMAT CSV, HEADER);`);
+    // Use conn.send() to get a stream of results
+    const reader = await conn.send(`SELECT * FROM '${fileName.value}'`);
+
+    const csvChunks: string[] = [];
+    
+    // Create the header row from the schema
+    const header = reader.schema.fields.map(field => escapeCsvCell(field.name)).join(',');
+    csvChunks.push(header);
+
+    // Process the data in batches as it streams in
+    for await (const batch of reader) {
+      for (const row of batch) {
+        const rowValues = Array.from(row).map(cell => escapeCsvCell(cell));
+        csvChunks.push(rowValues.join(','));
+      }
+    }
     
     await conn.close();
 
-    // Read the virtual file from DuckDB's memory into a buffer
-    const buffer = await db.value.copyFileToBuffer(csvFileName);
+    const csvContent = csvChunks.join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     
-    // Trigger the download using the buffer
-    const blob = new Blob([buffer], { type: 'text/csv;charset=utf-8;' });
+    // Trigger the download
     const link = document.createElement('a');
     const url = URL.createObjectURL(blob);
     link.setAttribute('href', url);
@@ -95,6 +132,7 @@ const handleDownloadCsv = async () => {
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+    URL.revokeObjectURL(url);
 
     fileStatus.value = 'CSV download initiated.';
   } catch (error) {
@@ -125,6 +163,12 @@ const handleDownloadCsv = async () => {
     :disabled="isProcessing || !db" 
     accept=".parquet" 
   />
+</div>
+
+<div v-if="uploadProgress !== null" class="progress-wrapper">
+  <div class="progress-bar-container">
+    <div class="progress-bar-fill" :style="{ width: `${uploadProgress}%` }"></div>
+  </div>
 </div>
 
     
@@ -298,4 +342,24 @@ header h1 {
     inset 2px 2px 4px var(--shadow-dark),
     inset -2px -2px 4px var(--shadow-light);
 }
+/* Progress Bar */
+.progress-wrapper {
+  padding: 5px 0;
+}
+.progress-bar-container {
+  height: 10px;
+  border-radius: 5px;
+  background: var(--bg-color);
+  box-shadow: 
+    inset 2px 2px 5px var(--shadow-dark),
+    inset -2px -2px 5px var(--shadow-light);
+  overflow: hidden;
+}
+.progress-bar-fill {
+  height: 100%;
+  background: var(--primary-color);
+  border-radius: 5px;
+  transition: width 0.2s ease-out;
+}
+
 </style>
