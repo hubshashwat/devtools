@@ -144,6 +144,11 @@ const handleDownloadCsv = async () => {
       <p>On The Fly, On the UI [Privacy-Focused]</p>
     </header>
 
+    <div class="recommendation-note">
+      <p>💡 Recommended for files under 500MB. </p>
+      <p> Please refresh after each conversion to clear cache.</p>
+    </div>
+
     <div class="upload-wrapper">
 <label for="file-upload" class="upload-label">
   {{ fileName  || 'Upload Parquet' }}
@@ -345,6 +350,21 @@ header h1 {
   height: 100%;
   background: linear-gradient(90deg, #4caf50, #8bc34a);
   transition: width 0.2s ease;
+}
+
+.recommendation-note {
+  text-align: center;
+  font-size: 0.9rem;
+  color: #5a677a;
+  padding: 10px 15px;
+  border-radius: 8px;
+  background: var(--bg-color);
+  box-shadow: 
+    inset 2px 2px 5px var(--shadow-dark),
+    inset -2px -2px 5px var(--shadow-light);
+}
+.recommendation-note p {
+  margin: 0;
 }
 
 </style>
