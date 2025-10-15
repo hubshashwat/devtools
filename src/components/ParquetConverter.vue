@@ -2,15 +2,15 @@
 import { ref, onMounted } from 'vue';
 import * as duckdb from '@duckdb/duckdb-wasm';
 
-// --- STATE ---
 const fileStatus = ref<string>('Initializing DuckDB...');
 const rowCount = ref<number | null>(null);
-const fileName = ref<string | null>(null); // To store the uploaded file's name
+const processedRows = ref<number>(0);
+const progressPercent = ref<number>(0);
+const fileName = ref<string | null>(null);
 const isProcessing = ref<boolean>(false);
-const isConverting = ref<boolean>(false); // For the download button state
+const isConverting = ref<boolean>(false);
 const db = ref<duckdb.AsyncDuckDB | null>(null);
 
-// --- INITIALIZATION ---
 onMounted(async () => {
   try {
     const JSDELIVR_BUNDLES = duckdb.getJsDelivrBundles();
@@ -25,36 +25,33 @@ onMounted(async () => {
     URL.revokeObjectURL(worker_url);
     db.value = newDb;
     fileStatus.value = 'Ready. Please select a Parquet file.';
-    console.log("✅ DuckDB Initialized");
   } catch (error) {
     console.error("Failed to initialize DuckDB:", error);
     fileStatus.value = `Error: ${(error as Error).message}`;
   }
 });
 
-// --- METHODS ---
 const handleFileUpload = async (event: Event) => {
-  if (!db.value) { return; }
+  if (!db.value) return;
   const target = event.target as HTMLInputElement;
   const file = target.files?.[0];
-  if (!file) { return; }
+  if (!file) return;
 
   isProcessing.value = true;
   fileStatus.value = `Processing file: ${file.name}...`;
+  fileName.value = file.name;
   rowCount.value = null;
-  fileName.value = file.name; // Store the filename
 
   try {
     await db.value.registerFileBuffer(file.name, new Uint8Array(await file.arrayBuffer()));
     const conn = await db.value.connect();
-    
-    const countResult = await conn.query(`SELECT COUNT(*) FROM '${file.name}'`);
-    rowCount.value = countResult.toArray()[0]['count_star()'] as number;
-    
+    const countResult = await conn.query(`SELECT COUNT(*) AS cnt FROM read_parquet('${file.name}')`);
+    rowCount.value = Number(countResult.toArray()[0].cnt);
     await conn.close();
-    fileStatus.value = `File loaded. Ready to download.`;
+
+    fileStatus.value = `File loaded. ${rowCount.value.toLocaleString()} rows ready.`;
   } catch (error) {
-    console.error("Failed to process Parquet file:", error);
+    console.error("Failed to process file:", error);
     fileStatus.value = `Error: ${(error as Error).message}`;
   } finally {
     isProcessing.value = false;
@@ -62,43 +59,77 @@ const handleFileUpload = async (event: Event) => {
 };
 
 const handleDownloadCsv = async () => {
-  if (!db.value || !fileName.value) { return; }
+  if (!db.value || !fileName.value) return;
 
   isConverting.value = true;
-  fileStatus.value = 'Converting to CSV... this may take a moment for large files.';
-  const csvFileName = 'export.csv';
-  
+  fileStatus.value = 'Starting CSV conversion...';
+  processedRows.value = 0;
+  progressPercent.value = 0;
+
+  const BATCH_SIZE = 20000; // Tune for memory vs speed
+
   try {
     const conn = await db.value.connect();
-    
-    // --- THIS IS THE FIX ---
-    // Increase the memory limit for this connection to handle the large file.
-    await conn.query("PRAGMA memory_limit='1GB';");
-    // --- END OF FIX ---
+    const csvFileName = fileName.value.replace(/\.parquet$/i, '.csv');
+    const csvChunks: BlobPart[] = [];
 
-    // Use the COPY command to export the entire table to a virtual file
-    await conn.query(`COPY (SELECT * FROM '${fileName.value}') TO '${csvFileName}' WITH (FORMAT CSV, HEADER);`);
-    
+    // --- Header ---
+    const schema = await conn.query(`DESCRIBE SELECT * FROM read_parquet('${fileName.value}')`);
+    const columns = schema.toArray().map(r => r.column_name);
+    csvChunks.push(columns.join(',') + '\n');
+
+    let offset = 0;
+    const total = rowCount.value ?? 0;
+
+    // --- Batch loop ---
+    while (true) {
+      const query = `SELECT * FROM read_parquet('${fileName.value}') LIMIT ${BATCH_SIZE} OFFSET ${offset}`;
+      const result = await conn.query(query);
+      const rows = result.toArray();
+      if (rows.length === 0) break;
+
+      const csvLines = rows.map(row =>
+        columns.map(c => {
+          const val = row[c];
+          if (val === null || val === undefined) return '';
+          if (typeof val === 'bigint') return val.toString();
+          if (typeof val === 'string') return `"${val.replace(/"/g, '""')}"`;
+          return val.toString();
+        }).join(',')
+      );
+
+      csvChunks.push(csvLines.join('\n') + '\n');
+
+      processedRows.value += rows.length;
+      offset += BATCH_SIZE;
+
+      // --- Update progress ---
+      if (total > 0) {
+        progressPercent.value = Math.min(100, Math.round((processedRows.value / total) * 100));
+        fileStatus.value = `Processing ${processedRows.value.toLocaleString()} of ${total.toLocaleString()} rows (${progressPercent.value}%)`;
+      } else {
+        fileStatus.value = `Processed ${processedRows.value.toLocaleString()} rows...`;
+      }
+
+      await new Promise(r => setTimeout(r, 0)); // yield to UI
+    }
+
     await conn.close();
 
-    // Read the virtual file from DuckDB's memory into a buffer
-    const buffer = await db.value.copyFileToBuffer(csvFileName);
-    
-    // Trigger the download using the buffer
-    const blob = new Blob([buffer], { type: 'text/csv;charset=utf-8;' });
-    const link = document.createElement('a');
+    // --- Final download ---
+    const blob = new Blob(csvChunks, { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
-    link.setAttribute('href', url);
-    const downloadFileName = fileName.value.replace(/\.parquet$/i, '.csv');
-    link.setAttribute('download', downloadFileName);
-    link.style.visibility = 'hidden';
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = csvFileName;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+    URL.revokeObjectURL(url);
 
-    fileStatus.value = 'CSV download initiated.';
+    fileStatus.value = `✅ Done! Exported ${processedRows.value.toLocaleString()} rows.`;
   } catch (error) {
-    console.error("Failed to convert to CSV:", error);
+    console.error("Conversion error:", error);
     fileStatus.value = `Error: ${(error as Error).message}`;
   } finally {
     isConverting.value = false;
@@ -134,7 +165,10 @@ const handleDownloadCsv = async () => {
       :disabled="isProcessing || !db" 
       accept=".parquet" 
       class="file-input"
-    /> -->
+    /> --><div v-if="isConverting" class="progress-bar-wrapper">
+  <div class="progress-bar" :style="{ width: progressPercent + '%' }"></div>
+</div>
+
     
     <div class="status-box">
       <strong>Status:</strong> {{ fileStatus }}
@@ -298,4 +332,19 @@ header h1 {
     inset 2px 2px 4px var(--shadow-dark),
     inset -2px -2px 4px var(--shadow-light);
 }
+.progress-bar-wrapper {
+  width: 100%;
+  height: 14px;
+  border-radius: 10px;
+  background: #d1d9e6;
+  overflow: hidden;
+  box-shadow: inset 2px 2px 5px #a3b1c6, inset -2px -2px 5px #ffffff;
+}
+
+.progress-bar {
+  height: 100%;
+  background: linear-gradient(90deg, #4caf50, #8bc34a);
+  transition: width 0.2s ease;
+}
+
 </style>
