@@ -1,16 +1,18 @@
 <script setup lang="ts">
 import { ref } from 'vue';
-// 1. Import the new PomodoroTimer component
+// 1. Import the new components
 import ParquetConverter from './components/ParquetConverter.vue';
 import PomodoroTimer from './components/PomodoroTimer.vue';
+import ResumeRectifier from './components/ResumeRectifier.vue';
 
 // --- STATE ---
 const activeTab = ref('parquet');
 
-// 2. Update the tabs array to include the new timer
+// 2. Update the tabs array to include new tools
 const tabs = [
   { id: 'parquet', name: 'Parquet To CSV Converter' },
   { id: 'pomodoro', name: 'Pomodoro Timer' },
+  { id: 'resumerectifier', name: 'Resume Rectifier' },
 ];
 </script>
 
@@ -32,6 +34,8 @@ const tabs = [
       <ParquetConverter v-if="activeTab === 'parquet'" />
       
       <PomodoroTimer v-if="activeTab === 'pomodoro'" />
+
+      <ResumeRectifier v-if="activeTab === 'resumerectifier'" />
     </main>
   </div>
 </template>
