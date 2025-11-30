@@ -4,6 +4,7 @@ import { ref } from 'vue';
 import ParquetConverter from './components/ParquetConverter.vue';
 import PomodoroTimer from './components/PomodoroTimer.vue';
 import ResumeRectifier from './components/ResumeRectifier.vue';
+import BatchLinkOpener from './components/BatchLinkOpener.vue';
 
 // --- STATE ---
 const activeTab = ref('parquet');
@@ -13,6 +14,7 @@ const tabs = [
   { id: 'parquet', name: 'Parquet To CSV Converter' },
   { id: 'pomodoro', name: 'Pomodoro Timer' },
   { id: 'resumerectifier', name: 'Resume Rectifier' },
+  { id: 'batchlinkopener', name: 'Bulk Link Opener' },
 ];
 </script>
 
@@ -31,11 +33,13 @@ const tabs = [
     </nav>
 
     <main class="tab-content">
+      
       <ParquetConverter v-if="activeTab === 'parquet'" />
       
       <PomodoroTimer v-if="activeTab === 'pomodoro'" />
 
       <ResumeRectifier v-if="activeTab === 'resumerectifier'" />
+      <BatchLinkOpener v-if="activeTab === 'batchlinkopener'" />
     </main>
   </div>
 </template>

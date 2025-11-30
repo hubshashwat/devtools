@@ -276,7 +276,7 @@ const handleFileUpload = async (event: Event) => {
     <!-- Header -->
     <header class="neu-card">
       <h1>Resume Rectifier</h1>
-      <p class="subtitle">Offline, Privacy-First, Base-level Resume Checking</p>
+      <p class="subtitle">On the fly, On the UI, Privacy-First, Base-level Resume Checking</p>
     </header>
 
     <!-- Input Section -->
