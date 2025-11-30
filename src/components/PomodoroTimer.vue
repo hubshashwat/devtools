@@ -169,4 +169,36 @@ onUnmounted(() => {
 .pause {
   color: #ff9500; /* Orange for Pause */
 }
+
+@media (max-width: 480px) {
+  .timer-card {
+    padding: 20px;
+    margin: 1rem;
+  }
+  
+  .timer-display h1 {
+    font-size: 4rem;
+  }
+
+  .controls {
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 12px;
+  }
+
+  .control-button {
+    width: 80px;
+    font-size: 0.9rem;
+  }
+  
+  .mode-switcher {
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+  
+  .mode-switcher button {
+    font-size: 0.9rem;
+    padding: 6px 12px;
+  }
+}
 </style>

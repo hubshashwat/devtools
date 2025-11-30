@@ -192,7 +192,6 @@ const handleDownloadCsv = async () => {
   </main>
 </template>
 
-
 <style>
 :root {
   --bg-color: #e0e5ec; /* base background */
@@ -367,4 +366,29 @@ header h1 {
   margin: 0;
 }
 
+@media (max-width: 600px) {
+  .container {
+    padding: 1rem;
+    margin: 20px auto;
+  }
+  
+  header h1 {
+    font-size: 1.4rem;
+  }
+  
+  .upload-circle {
+    width: 50px;
+    height: 50px;
+  }
+  
+  .upload-label {
+    padding: 12px 20px;
+    font-size: 0.9rem;
+  }
+  
+  .download-button {
+    padding: 12px 30px;
+    font-size: 1rem;
+  }
+}
 </style>
